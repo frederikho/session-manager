@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Manager</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>Session Manager</h1>
+    <p id="subtitle">Scanning…</p>
+  </div>
+  <div class="topbar-actions">
+    <button id="refresh" class="btn">Refresh</button>
+  </div>
+</header>
+
+<section class="stats" id="stats"></section>
+
+<section class="controls">
+  <input id="search" type="search" placeholder="Search title, folder or id…" autocomplete="off">
+  <select id="filter-agent">
+    <option value="">All agents</option>
+    <option value="claude">Claude</option>
+    <option value="codex">Codex</option>
+  </select>
+  <select id="filter-location"><option value="">All locations</option></select>
+  <select id="filter-status">
+    <option value="">All states</option>
+    <option value="synced">Synced</option>
+    <option value="local-only">Not synced</option>
+    <option value="local-newer">Local ahead</option>
+    <option value="remote-newer">OneDrive ahead</option>
+    <option value="remote-only">OneDrive only</option>
+  </select>
+  <label class="check"><input type="checkbox" id="hide-subagents" checked> Hide subagent threads</label>
+</section>
+
+<section class="actionbar" id="actionbar" hidden>
+  <span id="selection-count"></span>
+  <button class="btn primary" data-action="push">Sync to OneDrive</button>
+  <button class="btn" data-action="pull">Restore here…</button>
+  <button class="btn" data-action="rename">Rename…</button>
+  <button class="btn danger" data-action="delete-local">Delete local</button>
+  <button class="btn danger" data-action="delete-shared">Delete from OneDrive</button>
+  <button class="btn ghost" id="clear-selection">Clear</button>
+</section>
+
+<main>
+  <table id="table">
+    <thead>
+      <tr>
+        <th class="col-check"><input type="checkbox" id="select-all"></th>
+        <th class="col-expand"></th>
+        <th>Session</th>
+        <th>Where</th>
+        <th>State</th>
+        <th class="num">Size</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p id="empty" class="empty" hidden>No sessions match these filters.</p>
+</main>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card">
+    <h2 id="modal-title"></h2>
+    <p id="modal-body"></p>
+    <div id="modal-extra"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modal-cancel">Cancel</button>
+      <button class="btn" id="modal-confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

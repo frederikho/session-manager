@@ -1,0 +1,13 @@
+{
+  "name": "session-manager",
+  "version": "1.0.0",
+  "description": "GUI for browsing, syncing and deleting Claude Code and Codex sessions across Windows, WSL and the shared OneDrive folder.",
+  "type": "module",
+  "bin": {
+    "sessions": "bin/sessions.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
+}
