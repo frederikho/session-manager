@@ -86,6 +86,7 @@ export function push(session) {
 /** Restore a shared conversation into one of the local roots. */
 export function pull(session, targetLocationId, { overwrite = false } = {}) {
   const loc = locationById(targetLocationId)
+  if (loc.readOnly) throw new Error(`${loc.label} is a read-only mirror of another machine; the next sync would overwrite anything restored there.`)
   if (loc.agent !== session.agent) throw new Error(`${session.agent} session cannot be restored into a ${loc.agent} location.`)
 
   const sourceFile = session.shared?.file || session.file

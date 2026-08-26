@@ -7,7 +7,7 @@ import { discoverLocations, discoverShared } from './paths.mjs'
 
 const CACHE_FILE = path.join(os.homedir(), '.session-manager-cache.json')
 // Bump whenever the parsers change what they extract, so stale entries are re-parsed.
-const PARSER_VERSION = 4
+const PARSER_VERSION = 5
 
 function loadCache() {
   try {
@@ -126,6 +126,7 @@ function scanLocal(locations, cache, nextCache) {
         locationId: loc.id,
         locationLabel: loc.label,
         host: loc.host,
+        readOnly: Boolean(loc.readOnly),
         file,
         project: project || null,
         relativePath: path.relative(loc.root, file).split(path.sep).join('/'),

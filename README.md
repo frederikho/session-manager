@@ -21,7 +21,22 @@ That starts a local server on `http://127.0.0.1:4321` and opens it in your brows
 | Shared · Codex | `OneDrive*/codex/sessions` |
 
 WSL distros are enumerated with `wsl -l -q` and read over UNC, so nothing needs to be
-installed inside the distro. Override the shared folders with `CLAUDE_SESSION_SYNC_ROOT`
+installed inside the distro.
+
+### Machines you reach over SSH
+
+`bin/pull-remote.sh <ssh-host>` rsyncs another machine's transcripts into
+`remote/<host>/{claude,codex}`, and every such directory is picked up as a read-only
+location — listed, counted and searched alongside the local ones:
+
+```
+bin/pull-remote.sh solar-panels-h
+```
+
+Run it on a timer to keep the mirror fresh; transcripts are append-only, so repeat
+syncs transfer only what was added. The mirror is never a restore target — the tool
+refuses, because the next sync would overwrite anything written there. Set
+`SESSION_MIRROR_ROOT` to keep the mirrors outside the project folder. Override the shared folders with `CLAUDE_SESSION_SYNC_ROOT`
 and `CODEX_SESSION_SYNC_ROOT` on machines with unusual OneDrive paths.
 
 ## Sync states

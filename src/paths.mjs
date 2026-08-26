@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const isWindows = process.platform === 'win32'
 
@@ -48,6 +49,42 @@ function wslHomes(distro) {
   const root = path.join(base, 'root')
   if (exists(root)) candidates.push({ user: 'root', home: root })
   return candidates.filter(({ home }) => exists(path.join(home, '.claude', 'projects')) || exists(path.join(home, '.codex', 'sessions')))
+}
+
+
+/**
+ * Read-only mirrors of other machines, rsynced in by `bin/pull-remote.sh`.
+ * Convention over configuration: every `remote/<host>/claude` or
+ * `remote/<host>/codex` directory becomes a location labelled `<host>`.
+ * Set SESSION_MIRROR_ROOT to keep them somewhere other than the project folder.
+ */
+function mirrorLocations() {
+  const projectDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const root = process.env.SESSION_MIRROR_ROOT || path.join(projectDir, 'remote')
+  const locations = []
+
+  let hosts = []
+  try {
+    hosts = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory())
+  } catch {
+    return locations
+  }
+
+  for (const host of hosts) {
+    for (const agent of ['claude', 'codex']) {
+      const dir = path.join(root, host.name, agent)
+      if (!exists(dir)) continue
+      locations.push({
+        id: `mirror-${host.name}-${agent}`,
+        label: `${host.name} · ${agent === 'claude' ? 'Claude' : 'Codex'}`,
+        host: host.name,
+        agent,
+        root: dir,
+        readOnly: true,
+      })
+    }
+  }
+  return locations
 }
 
 /**
@@ -107,6 +144,8 @@ export function discoverLocations() {
       }
     }
   }
+
+  locations.push(...mirrorLocations())
 
   return locations
 }

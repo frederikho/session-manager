@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import readline from 'node:readline'
 
+import { isNoise } from './parse.mjs'
+
 const HEAD_KEEP = 60
 const TAIL_KEEP = 300
 
@@ -52,7 +54,11 @@ function claudeMessage(rec) {
   // A user record carrying only a tool_result is the transcript's plumbing, not a turn.
   if (!parts.length) return toolResult ? { role: 'tool-result', text: toolResult, at: rec.timestamp } : null
 
-  return { role: rec.type, parts, at: rec.timestamp, model: rec.message?.model || null }
+  // Injected preambles arrive as user turns. Keep them for the detailed view,
+  // but flag them so the plain conversation doesn't open with boilerplate.
+  const boilerplate = rec.type === 'user' && (Boolean(rec.isMeta) || isNoise(parts.map((p) => p.text).join('\n')))
+
+  return { role: rec.type, parts, at: rec.timestamp, model: rec.message?.model || null, boilerplate }
 }
 
 function codexMessage(rec) {
@@ -62,7 +68,7 @@ function codexMessage(rec) {
     if (p.type === 'message' && (p.role === 'user' || p.role === 'assistant')) {
       const text = textOf(p.content)
       if (!text.trim()) return null
-      return { role: p.role, parts: [{ kind: 'text', text }], at: rec.timestamp }
+      return { role: p.role, parts: [{ kind: 'text', text }], at: rec.timestamp, boilerplate: p.role === 'user' && isNoise(text) }
     }
     if (p.type === 'function_call' || p.type === 'local_shell_call') {
       return {
@@ -107,6 +113,7 @@ export async function readTranscript(file, agent) {
     }
     const message = agent === 'claude' ? claudeMessage(rec) : codexMessage(rec)
     if (!message) continue
+    message.idx = total
     total += 1
 
     if (head.length < HEAD_KEEP) head.push(message)
@@ -154,24 +161,30 @@ export async function searchTranscript(file, agent, needle, { maxSnippets = 3 } 
   const lines = readline.createInterface({ input: stream, crlfDelay: Infinity })
 
   let hits = 0
+  let idx = 0
   const snippets = []
 
   for await (const line of lines) {
     if (!line) continue
-    if (!line.toLowerCase().includes(needle)) continue
     let rec
     try {
       rec = JSON.parse(line)
     } catch {
       continue
     }
+    // Every message must be numbered, matched or not: this index is what the UI
+    // scrolls to, so it has to agree with readTranscript's numbering exactly.
     const message = agent === 'claude' ? claudeMessage(rec) : codexMessage(rec)
     if (!message) continue
+    const cur = idx++
+
+    if (!line.toLowerCase().includes(needle)) continue
+    if (message.boilerplate) continue // hidden in the plain view, so never a jump target
     const text = spokenText(message)
     if (!text.toLowerCase().includes(needle)) continue
     hits += 1
     if (snippets.length < maxSnippets) {
-      snippets.push({ role: message.role, at: message.at || null, text: snippetAround(text, needle) })
+      snippets.push({ role: message.role, at: message.at || null, idx: cur, text: snippetAround(text, needle) })
     }
   }
 

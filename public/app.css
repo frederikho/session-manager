@@ -322,7 +322,73 @@ td.num { text-align: right; color: var(--muted); font-variant-numeric: tabular-n
 .search-status { margin: 6px 2px 0; font-size: 12px; color: var(--muted); min-height: 15px; }
 .hits { margin-top: 6px; border-left: 2px solid var(--accent, #6a9); padding-left: 8px; }
 .hit-count { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
-.hit { font-size: 12px; line-height: 1.45; margin: 2px 0; }
+.hit { font-size: 12px; line-height: 1.45; margin: 2px 0; cursor: pointer; border-radius: 4px; padding: 2px 4px; margin-left: -4px; transition: background .15s; }
+.hit:hover { background: var(--panel-2); }
 .hit-role { display: inline-block; min-width: 38px; margin-right: 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; opacity: .75; }
 .hit-role.user { color: #7aa2f7; }
 .hit-role.assistant { color: #9ece6a; }
+
+@keyframes flash-highlight { 0% { background: rgba(255, 205, 40, .22); } 100% { background: transparent; } }
+.msg-highlight { animation: flash-highlight 4s ease-out; border-radius: 6px; }
+
+/* The matched words themselves, until the jump highlight fades. */
+mark.hit-mark {
+  background: rgba(255, 205, 40, .55);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+  transition: background .6s ease-out;
+}
+mark.hit-mark.fading { background: transparent; }
+
+/* Plain conversation view — the default when reading a session. */
+.transcript.plain { padding: 4px 18px 18px; }
+.turn { margin: 0 0 18px; max-width: 860px; }
+.turn-who {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); margin-bottom: 5px;
+}
+.turn-who .turn-at { margin-left: 8px; text-transform: none; letter-spacing: 0; opacity: .65; }
+.turn.user .turn-who { color: var(--accent); }
+.turn-body { word-break: break-word; line-height: 1.55; }
+.turn.user .turn-body {
+  background: var(--panel-2, rgba(127, 127, 127, .12));
+  border-radius: 8px; padding: 10px 12px;
+}
+.turn-body code {
+  background: rgba(127, 127, 127, .18); border-radius: 4px;
+  padding: 1px 4px; font-size: 12.5px;
+}
+.turn-body pre.code {
+  background: rgba(127, 127, 127, .13); border-radius: 8px;
+  padding: 10px 12px; margin: 8px 0; overflow-x: auto; white-space: pre;
+}
+.turn-body pre.code code { background: none; padding: 0; }
+.turn-body > :first-child { margin-top: 0; }
+.turn-body > :last-child { margin-bottom: 0; }
+.turn-body p { margin: 0 0 10px; }
+.turn-body p.md-h { font-weight: 600; margin: 16px 0 6px; }
+.turn-body ul { margin: 0 0 10px; padding-left: 20px; }
+.turn-body li { margin: 2px 0; }
+
+/* Pipe tables. Wide ones scroll inside their own box so the row never widens. */
+.turn-body .md-table-wrap { overflow-x: auto; margin: 0 0 12px; }
+.turn-body table.md-table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  line-height: 1.45;
+  min-width: 100%;
+}
+.turn-body table.md-table th,
+.turn-body table.md-table td {
+  border: 1px solid rgba(127, 127, 127, .28);
+  padding: 6px 9px;
+  vertical-align: top;
+  text-align: left;
+}
+.turn-body table.md-table th {
+  background: rgba(127, 127, 127, .12);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.turn-body table.md-table tbody tr:nth-child(even) { background: rgba(127, 127, 127, .05); }

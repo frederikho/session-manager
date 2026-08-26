@@ -3,9 +3,27 @@ const state = {
   selected: new Set(),
   filters: { search: '', agent: '', location: '', status: '' },
   contentSearch: { query: '', results: null, running: false },
+  detailedView: loadPref('detailedView', false),
   hideSubagents: true,
   expanded: null,
   transcripts: new Map(),
+}
+
+function loadPref(key, fallback) {
+  try {
+    const raw = localStorage.getItem(`session-manager.${key}`)
+    return raw === null ? fallback : JSON.parse(raw)
+  } catch {
+    return fallback
+  }
+}
+
+function savePref(key, value) {
+  try {
+    localStorage.setItem(`session-manager.${key}`, JSON.stringify(value))
+  } catch {
+    /* private windows and blocked site data are fine; the preference just won't stick */
+  }
 }
 
 const $ = (id) => document.getElementById(id)
@@ -92,7 +110,116 @@ function renderStats() {
     ${state.data.emptySkipped ? `<div class="stat"><b>${state.data.emptySkipped}</b><span>empty, hidden</span></div>` : ''}`
 }
 
-function renderMessage(m) {
+/**
+ * Just enough markdown for a readable conversation: fenced code, inline code,
+ * bold/italic, headings and bullets. Everything is escaped first, so the
+ * replacements below can never introduce markup from the transcript itself.
+ */
+const SEPARATOR = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/
+
+function splitRow(line) {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim())
+}
+
+/** Column alignment from the `|:---|---:|:--:|` row. */
+function alignments(line) {
+  return splitRow(line).map((cell) => {
+    const left = cell.startsWith(':')
+    const right = cell.endsWith(':')
+    if (left && right) return ' style="text-align:center"'
+    if (right) return ' style="text-align:right"'
+    return ''
+  })
+}
+
+/** A pipe table, or null when the block is not one. */
+function renderTable(lines) {
+  const sep = lines.findIndex((l) => SEPARATOR.test(l))
+  if (sep === -1 || sep > 1) return null
+  if (!lines.some((l) => l.includes('|'))) return null
+
+  const align = alignments(lines[sep])
+  const header = sep === 1 ? splitRow(lines[0]) : null
+  const body = lines.slice(sep + 1).filter((l) => l.trim())
+  if (!header && !body.length) return null
+
+  const cell = (tag, values) =>
+    `<tr>${values.map((v, i) => `<${tag}${align[i] || ''}>${v}</${tag}>`).join('')}</tr>`
+
+  const head = header ? `<thead>${cell('th', header)}</thead>` : ''
+  const rows = body.map((l) => cell('td', splitRow(l))).join('')
+  return `<div class="md-table-wrap"><table class="md-table">${head}<tbody>${rows}</tbody></table></div>`
+}
+
+function renderMarkdown(text) {
+  const blocks = []
+  let html = escapeHtml(text)
+
+  // Pull fenced code out first so its contents are never touched by inline rules.
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    blocks.push(`<pre class="code"${lang ? ` data-lang="${lang}"` : ''}><code>${code.replace(/\n$/, '')}</code></pre>`)
+    return `@@CODEBLOCK${blocks.length - 1}@@`
+  })
+
+  html = html
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|\W)\*([^*\n]+)\*/g, '$1<em>$2</em>')
+
+  // Real block structure: spacing comes from margins alone. Mixing preserved
+  // newlines (pre-wrap) with block margins is what doubled the gaps around
+  // headings and lists.
+  const out = html
+    .split(/\n{2,}/)
+    .map((block) => {
+      const trimmed = block.trim()
+      if (!trimmed) return ''
+      if (/^@@CODEBLOCK\d+@@$/.test(trimmed)) return trimmed
+
+      const lines = trimmed.split('\n')
+
+      const table = renderTable(lines)
+      if (table) return table
+
+      if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
+        return `<ul>${lines.map((l) => `<li>${l.replace(/^\s*[-*]\s+/, '')}</li>`).join('')}</ul>`
+      }
+
+      const heading = /^(#{1,6})\s+(.+)$/.exec(trimmed)
+      if (heading && lines.length === 1) return `<p class="md-h">${heading[2]}</p>`
+
+      return `<p>${lines.map((l) => l.replace(/^(#{1,6})\s+/, '')).join('<br>')}</p>`
+    })
+    .filter(Boolean)
+    .join('')
+
+  return out.replace(/@@CODEBLOCK(\d+)@@/g, (_, i) => blocks[Number(i)])
+}
+
+/** The plain conversation: what each side actually said, nothing else. */
+function renderPlainMessage(m, idx) {
+  if (m.role !== 'user' && m.role !== 'assistant') return ''
+  if (m.boilerplate) return ''
+  const text = (m.parts || [])
+    .filter((p) => p.kind === 'text')
+    .map((p) => p.text)
+    .join('\n\n')
+    .trim()
+  if (!text) return ''
+
+  return `<div class="turn ${m.role}" data-msg-idx="${idx}">
+    <div class="turn-who">${m.role === 'user' ? 'You' : 'Assistant'}${m.at ? `<span class="turn-at">${new Date(m.at).toLocaleString()}</span>` : ''}</div>
+    <div class="turn-body">${renderMarkdown(text)}</div>
+  </div>`
+}
+
+/** Everything the transcript holds: reasoning, tool calls and tool output too. */
+function renderMessage(m, idx) {
   if (m.role === 'meta') return `<div class="msg meta-msg">${escapeHtml(m.text)}</div>`
   if (m.role === 'tool-result') return `<div class="msg tool-result"><pre>${escapeHtml(m.text)}</pre></div>`
 
@@ -104,7 +231,7 @@ function renderMessage(m) {
     })
     .join('')
 
-  return `<div class="msg ${m.role}">
+  return `<div class="msg ${m.role}" data-msg-idx="${idx}">
     <div class="who">${m.role === 'user' ? 'You' : 'Assistant'}${m.at ? ` · ${new Date(m.at).toLocaleString()}` : ''}</div>
     ${parts}
   </div>`
@@ -115,15 +242,28 @@ function renderTranscript(session) {
   if (!entry) return '<div class="transcript loading">Loading transcript…</div>'
   if (entry.error) return `<div class="transcript error-text">${escapeHtml(entry.error)}</div>`
 
+  const detailed = state.detailedView
   const gap = entry.dropped
     ? `<div class="msg meta-msg">… ${entry.dropped} messages in the middle not shown (${entry.total} total) …</div>`
     : ''
-  const body = entry.messages.map(renderMessage)
-  if (gap) body.splice(60, 0, gap)
 
-  return `<div class="transcript">
+  // The head/tail split happens at index 60 in the raw list; the plain view drops
+  // messages, so place the gap marker by original index rather than by count.
+  const body = []
+  entry.messages.forEach((m, i) => {
+    if (gap && i === 60) body.push(gap)
+    const html = detailed ? renderMessage(m, m.idx ?? i) : renderPlainMessage(m, m.idx ?? i)
+    if (html) body.push(html)
+  })
+
+  const shown = body.filter((h) => h !== gap).length
+  const note = detailed
+    ? `${entry.total} messages`
+    : `${shown} turn${shown === 1 ? '' : 's'} shown · ${entry.total} records`
+
+  return `<div class="transcript ${detailed ? 'detailed' : 'plain'}">
     <div class="transcript-head">
-      <span>${entry.total} messages · ${formatSize(entry.bytes)} · <code class="sid">${escapeHtml(session.id)}</code><button class="copy-id" data-copy="${escapeHtml(session.id)}" title="Copy session id">⧉</button></span>
+      <span>${note} · ${formatSize(entry.bytes)} · <code class="sid">${escapeHtml(session.id)}</code><button class="copy-id" data-copy="${escapeHtml(session.id)}" title="Copy session id">⧉</button></span>
       <span class="path">${escapeHtml(session.file)}</span>
     </div>
     ${body.join('') || '<div class="loading">Nothing readable in this transcript.</div>'}
@@ -140,7 +280,7 @@ function renderRows() {
       const found = state.contentSearch.results?.[s.key]
       const hits = found
         ? `<div class="hits"><span class="hit-count">${found.hits} match${found.hits === 1 ? '' : 'es'} in the conversation</span>${found.snippets
-            .map((sn) => `<div class="hit"><span class="hit-role ${sn.role}">${sn.role === 'user' ? 'you' : 'agent'}</span>${escapeHtml(sn.text)}</div>`)
+            .map((sn) => `<div class="hit" data-hit-key="${s.key}" data-hit-idx="${sn.idx}"><span class="hit-role ${sn.role}">${sn.role === 'user' ? 'you' : 'agent'}</span>${escapeHtml(sn.text)}</div>`)
             .join('')}</div>`
         : ''
       const row = `<tr class="${checked ? 'selected' : ''}" data-key="${s.key}">
@@ -285,7 +425,7 @@ async function runAction(action) {
     const targets = chosen.filter((s) => s.shared)
     const agents = new Set(targets.map((s) => s.agent))
     const options = state.data.locations
-      .filter((l) => agents.has(l.agent))
+      .filter((l) => agents.has(l.agent) && !l.readOnly)
       .map((l) => `<option value="${l.id}">${escapeHtml(l.label)}</option>`)
       .join('')
     if (!options) return toast('No local location matches the agent of the selected sessions.', true)
@@ -340,8 +480,89 @@ async function runAction(action) {
   await load()
 }
 
-async function toggleExpand(key) {
-  if (state.expanded === key) {
+/** Remove any highlight spans left over from a previous jump. */
+function clearMatchMarks() {
+  for (const mark of document.querySelectorAll('mark.hit-mark')) {
+    const parent = mark.parentNode
+    if (!parent) continue
+    parent.replaceChild(document.createTextNode(mark.textContent), mark)
+    parent.normalize()
+  }
+}
+
+/**
+ * Wrap every occurrence of `needle` inside `el` in a <mark>. Walks text nodes
+ * rather than touching innerHTML, so existing markup (code, tables, links)
+ * cannot be corrupted by the replacement.
+ */
+function markMatches(el, needle) {
+  if (!needle) return 0
+  const target = needle.toLowerCase()
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  const nodes = []
+  let node
+  while ((node = walker.nextNode())) {
+    if (node.nodeValue.toLowerCase().includes(target)) nodes.push(node)
+  }
+
+  let count = 0
+  for (const text of nodes) {
+    let rest = text
+    for (;;) {
+      const at = rest.nodeValue.toLowerCase().indexOf(target)
+      if (at === -1) break
+      const after = rest.splitText(at)
+      const tail = after.splitText(target.length)
+      const mark = document.createElement('mark')
+      mark.className = 'hit-mark'
+      mark.textContent = after.nodeValue
+      after.parentNode.replaceChild(mark, after)
+      count += 1
+      rest = tail
+    }
+  }
+  return count
+}
+
+function scrollToMessage(key, idx) {
+  const doScroll = (attempt) => {
+    const el = document.querySelector(`[data-msg-idx="${idx}"]`)
+    if (!el) {
+      if (attempt < 5) {
+        setTimeout(() => doScroll(attempt + 1), 100)
+        return
+      }
+      // Very long conversations only load their head and tail; a hit in between
+      // has nothing to scroll to, so say so rather than appearing to do nothing.
+      const entry = state.transcripts.get(key)
+      if (entry?.dropped) {
+        toast(`That match is inside the ${entry.dropped} messages omitted from the middle of this conversation.`, true)
+      }
+      return
+    }
+    document.querySelectorAll('.msg-highlight').forEach((e) => e.classList.remove('msg-highlight'))
+    clearMatchMarks()
+    markMatches(el, state.contentSearch.query)
+    const container = el.closest('.transcript')
+    if (container && container.scrollHeight > container.clientHeight) {
+      const elTop = el.getBoundingClientRect().top
+      const cTop = container.getBoundingClientRect().top
+      container.scrollTop += elTop - cTop - 40
+    } else {
+      el.scrollIntoView({ block: 'center' })
+    }
+    el.classList.add('msg-highlight')
+    setTimeout(() => {
+      el.classList.remove('msg-highlight')
+      document.querySelectorAll('mark.hit-mark').forEach((m) => m.classList.add('fading'))
+      setTimeout(clearMatchMarks, 600)
+    }, 4000)
+  }
+  setTimeout(() => doScroll(0), 0)
+}
+
+async function toggleExpand(key, scrollToIdx) {
+  if (state.expanded === key && scrollToIdx == null) {
     state.expanded = null
     return renderRows()
   }
@@ -357,6 +578,7 @@ async function toggleExpand(key) {
     }
     if (state.expanded === key) renderRows()
   }
+  if (scrollToIdx != null) scrollToMessage(key, scrollToIdx)
 }
 
 async function copyId(id, button) {
@@ -378,6 +600,14 @@ async function copyId(id, button) {
 }
 
 $('rows').addEventListener('click', (event) => {
+  const hit = event.target.closest('[data-hit-key]')
+  if (hit) {
+    const key = hit.dataset.hitKey
+    const idx = Number(hit.dataset.hitIdx)
+    toggleExpand(key, idx).catch((err) => toast(err.message, true))
+    return
+  }
+
   const copy = event.target.closest('[data-copy]')
   if (copy) {
     copyId(copy.dataset.copy, copy).catch(() => toast('Could not copy to the clipboard.', true))
@@ -460,10 +690,17 @@ for (const [id, key] of [['filter-agent', 'agent'], ['filter-location', 'locatio
     renderRows()
   })
 }
+$('detailed-view').addEventListener('change', (e) => {
+  state.detailedView = e.target.checked
+  savePref('detailedView', state.detailedView)
+  renderRows()
+})
+
 $('hide-subagents').addEventListener('change', (e) => {
   state.hideSubagents = e.target.checked
   renderRows()
 })
 $('refresh').addEventListener('click', load)
 
+$('detailed-view').checked = state.detailedView
 load()

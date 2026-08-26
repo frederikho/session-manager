@@ -55,6 +55,7 @@ function textOf(content) {
 const NOISE = [
   /^<command-name>/,
   /^<local-command-stdout>/,
+  /^<local-command-caveat>/,
   /^<system-reminder>/,
   /^<user_instructions/,
   /^<environment_context/,
@@ -69,7 +70,7 @@ const NOISE = [
   /^This session is being continued from a previous/,
 ]
 
-function isNoise(text) {
+export function isNoise(text) {
   const t = text.trim()
   if (!t) return true
   return NOISE.some((re) => re.test(t))
