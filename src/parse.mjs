@@ -82,6 +82,62 @@ function summarise(text) {
     .slice(0, 160)
 }
 
+/**
+ * Count the user and assistant turns in a transcript. Unlike the metadata pass this
+ * has to read the whole file, so it streams in 1 MB chunks and keeps only the
+ * trailing partial line — a 200 MB transcript costs a few hundred ms and no memory.
+ */
+export function countMessages(file, agent) {
+  const CHUNK = 1024 * 1024
+  const fd = fs.openSync(file, 'r')
+  let user = 0
+  let assistant = 0
+  try {
+    const buf = Buffer.alloc(CHUNK)
+    let carry = ''
+    let bytesRead = 0
+    while ((bytesRead = fs.readSync(fd, buf, 0, CHUNK, null)) > 0) {
+      const text = carry + buf.toString('utf8', 0, bytesRead)
+      const lines = text.split('\n')
+      carry = lines.pop() ?? ''
+      for (const line of lines) tally(line)
+    }
+    if (carry.trim()) tally(carry)
+  } finally {
+    fs.closeSync(fd)
+  }
+
+  function tally(line) {
+    const trimmed = line.trim()
+    if (!trimmed) return
+    let rec
+    try {
+      rec = JSON.parse(trimmed)
+    } catch {
+      return
+    }
+    if (agent === 'claude') {
+      if (rec.isSidechain) return
+      // Most assistant records carry only tool_use blocks; count the ones that spoke.
+      if (rec.type === 'assistant') {
+        const content = rec.message?.content ?? rec.content
+        if (textOf(content).trim()) assistant += 1
+      } else if (rec.type === 'user' && !rec.isMeta) {
+        if (!isNoise(textOf(rec.message?.content ?? rec.content))) user += 1
+      }
+      return
+    }
+    // Codex writes each message twice (event_msg + response_item); count response_item only.
+    if (rec.type !== 'response_item') return
+    const p = rec.payload || {}
+    if (p.type !== 'message') return
+    if (p.role === 'assistant') assistant += 1
+    else if (p.role === 'user' && !isNoise(textOf(p.content))) user += 1
+  }
+
+  return { user, assistant, total: user + assistant }
+}
+
 /** Metadata for a Claude Code transcript (`~/.claude/projects/<project>/<uuid>.jsonl`). */
 export function parseClaudeSession(file, stat) {
   const { head, tail } = readEdges(file, stat.size)
@@ -92,7 +148,7 @@ export function parseClaudeSession(file, stat) {
   let cwd = null
   let gitBranch = null
   let version = null
-  let title = null
+  let promptTitle = null
   let startedAt = null
 
   for (const rec of headRecords) {
@@ -101,11 +157,21 @@ export function parseClaudeSession(file, stat) {
     gitBranch ||= rec.gitBranch || null
     version ||= rec.version || null
     startedAt ||= rec.timestamp || null
-    if (!title && rec.type === 'user' && !rec.isMeta && !rec.isSidechain) {
+    if (!promptTitle && rec.type === 'user' && !rec.isMeta && !rec.isSidechain) {
       const text = textOf(rec.message?.content ?? rec.content)
-      if (!isNoise(text)) title = summarise(text)
+      if (!isNoise(text)) promptTitle = summarise(text)
     }
   }
+
+  // `/rename` appends a `custom-title` record and the auto-namer an `ai-title` one,
+  // both mid-file. Scan head and tail in file order so the most recent rename wins.
+  let customTitle = null
+  let aiTitle = null
+  for (const rec of [...headRecords, ...tailRecords]) {
+    if (rec.type === 'custom-title' && rec.customTitle) customTitle = summarise(String(rec.customTitle))
+    else if (rec.type === 'ai-title' && rec.aiTitle) aiTitle = summarise(String(rec.aiTitle))
+  }
+  const title = customTitle || aiTitle || promptTitle
 
   let updatedAt = null
   for (const rec of [...tailRecords, ...headRecords].reverse()) {
@@ -119,6 +185,7 @@ export function parseClaudeSession(file, stat) {
     agent: 'claude',
     id,
     title: title || '(no prompt yet)',
+    titleSource: customTitle ? 'custom' : aiTitle ? 'ai' : promptTitle ? 'prompt' : 'none',
     cwd,
     gitBranch,
     version,
@@ -169,10 +236,16 @@ export function parseCodexSession(file, stat) {
     }
   }
 
+  // A large injected preamble (AGENTS.md and friends) can push the real first
+  // prompt past the head window. Fall back to the working directory rather than
+  // labelling a full conversation as empty.
+  const cwdTitle = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() : null
+
   return {
     agent: 'codex',
     id,
-    title: title || '(no prompt yet)',
+    title: title || (cwdTitle ? `(${cwdTitle})` : '(no prompt yet)'),
+    titleSource: title ? 'prompt' : cwdTitle ? 'cwd' : 'none',
     cwd,
     gitBranch: null,
     version,

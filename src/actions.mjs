@@ -163,17 +163,6 @@ export function rename(session, requestedName) {
   return { name: clean, dir: target }
 }
 
-/** Delete the machine-local copy of a session (shared copy untouched). */
-export function deleteLocal(session) {
-  const roots = discoverLocations().map((l) => l.root)
-  assertManaged(session.file, roots)
-
-  fs.rmSync(session.file, { force: true })
-  const sidecar = path.join(path.dirname(session.file), session.id)
-  if (fs.existsSync(sidecar)) fs.rmSync(sidecar, { recursive: true, force: true })
-  return { deleted: session.file }
-}
-
 /** Delete the OneDrive copy — this removes it from every machine. */
 export function deleteShared(session) {
   const dir = session.shared?.dir

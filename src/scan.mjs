@@ -2,10 +2,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { parseClaudeSession, parseCodexSession } from './parse.mjs'
+import { countMessages, parseClaudeSession, parseCodexSession } from './parse.mjs'
 import { discoverLocations, discoverShared } from './paths.mjs'
 
 const CACHE_FILE = path.join(os.homedir(), '.session-manager-cache.json')
+// Bump whenever the parsers change what they extract, so stale entries are re-parsed.
+const PARSER_VERSION = 4
 
 function loadCache() {
   try {
@@ -87,12 +89,17 @@ function listCodexFiles(root) {
 }
 
 function parseWithCache(file, stat, agent, cache, nextCache) {
-  const key = `${file}|${stat.size}|${stat.mtimeMs}`
+  const key = `v${PARSER_VERSION}|${file}|${stat.size}|${stat.mtimeMs}`
   if (cache[key]) {
     nextCache[key] = cache[key]
     return cache[key]
   }
   const meta = agent === 'claude' ? parseClaudeSession(file, stat) : parseCodexSession(file, stat)
+  try {
+    meta.messages = countMessages(file, agent)
+  } catch {
+    meta.messages = null
+  }
   nextCache[key] = meta
   return meta
 }
@@ -125,6 +132,8 @@ function scanLocal(locations, cache, nextCache) {
         size: stat.size,
         mtime: stat.mtime.toISOString(),
         title: meta.title,
+        titleSource: meta.titleSource || 'prompt',
+        messages: meta.messages || null,
         cwd: meta.cwd,
         gitBranch: meta.gitBranch || null,
         startedAt: meta.startedAt,
@@ -262,8 +271,13 @@ export function scanAll() {
 
   const cache = loadCache()
   const nextCache = {}
-  const localSessions = scanLocal(locations, cache, nextCache)
+  const allLocal = scanLocal(locations, cache, nextCache)
   saveCache(nextCache)
+
+  // A session with no custom title, no generated title and no non-boilerplate user
+  // turn was opened and abandoned before anything was said. Nothing to show or sync.
+  const localSessions = allLocal.filter((s) => s.titleSource !== 'none')
+  const emptySkipped = allLocal.length - localSessions.length
 
   const sharedEntries = scanShared(shared)
   const sharedById = new Map()
@@ -318,5 +332,6 @@ export function scanAll() {
     shared,
     sessions,
     sharedEntries,
+    emptySkipped,
   }
 }

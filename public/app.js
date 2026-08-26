@@ -2,6 +2,7 @@ const state = {
   data: null,
   selected: new Set(),
   filters: { search: '', agent: '', location: '', status: '' },
+  contentSearch: { query: '', results: null, running: false },
   hideSubagents: true,
   expanded: null,
   transcripts: new Map(),
@@ -15,6 +16,11 @@ const STATE_LABEL = {
   'local-newer': 'Local ahead',
   'remote-newer': 'OneDrive ahead',
   'remote-only': 'OneDrive only',
+}
+
+function formatMessages(m) {
+  if (!m || !m.total) return '<span class="dim">—</span>'
+  return `<span title="${m.user} from you, ${m.assistant} in reply">${m.total}</span>`
 }
 
 function formatSize(bytes) {
@@ -66,7 +72,10 @@ function visibleSessions() {
     if (status && s.status !== status) return false
     if (state.hideSubagents && s.isSubagentThread) return false
     if (!needle) return true
-    return [s.title, s.cwd, s.id, s.project, s.locationLabel].filter(Boolean).join(' ').toLowerCase().includes(needle)
+    const meta = [s.title, s.cwd, s.id, s.project, s.locationLabel].filter(Boolean).join(' ').toLowerCase()
+    if (meta.includes(needle)) return true
+    const content = state.contentSearch
+    return content.query === needle && Boolean(content.results?.[s.key])
   })
 }
 
@@ -79,7 +88,8 @@ function renderStats() {
     <div class="stat ok"><b>${count('synced')}</b><span>synced</span></div>
     <div class="stat warn"><b>${unsynced}</b><span>need upload</span></div>
     <div class="stat accent"><b>${count('remote-only')}</b><span>only on OneDrive</span></div>
-    <div class="stat"><b>${state.data.locations.length}</b><span>locations</span></div>`
+    <div class="stat"><b>${state.data.locations.length}</b><span>locations</span></div>
+    ${state.data.emptySkipped ? `<div class="stat"><b>${state.data.emptySkipped}</b><span>empty, hidden</span></div>` : ''}`
 }
 
 function renderMessage(m) {
@@ -127,6 +137,12 @@ function renderRows() {
       const checked = state.selected.has(s.key) ? 'checked' : ''
       const open = state.expanded === s.key
       const sharedNote = s.shared ? `OneDrive: ${s.shared.name}` : ''
+      const found = state.contentSearch.results?.[s.key]
+      const hits = found
+        ? `<div class="hits"><span class="hit-count">${found.hits} match${found.hits === 1 ? '' : 'es'} in the conversation</span>${found.snippets
+            .map((sn) => `<div class="hit"><span class="hit-role ${sn.role}">${sn.role === 'user' ? 'you' : 'agent'}</span>${escapeHtml(sn.text)}</div>`)
+            .join('')}</div>`
+        : ''
       const row = `<tr class="${checked ? 'selected' : ''}" data-key="${s.key}">
         <td class="col-check"><input type="checkbox" data-key="${s.key}" ${checked}></td>
         <td class="col-expand"><button class="expander ${open ? 'open' : ''}" data-expand="${s.key}" title="Show conversation">▶</button></td>
@@ -136,19 +152,30 @@ function renderRows() {
             <code class="sid">${escapeHtml(s.id)}</code><button class="copy-id" data-copy="${escapeHtml(s.id)}" title="Copy session id">⧉</button>
             ${escapeHtml(s.cwd || s.project || '')}${sharedNote ? ` · ${escapeHtml(sharedNote)}` : ''}
           </div>
+          ${hits}
         </td>
         <td>${escapeHtml(s.locationLabel)}</td>
         <td><span class="state ${s.status}">${STATE_LABEL[s.status]}</span></td>
+        <td class="num">${formatMessages(s.messages)}</td>
         <td class="num">${formatSize(s.size)}</td>
         <td>${formatWhen(s.updatedAt)}</td>
       </tr>`
 
       if (!open) return row
-      return `${row}<tr class="detail-row"><td colspan="7">${renderTranscript(s)}</td></tr>`
+      return `${row}<tr class="detail-row"><td colspan="8">${renderTranscript(s)}</td></tr>`
     })
     .join('')
 
   $('rows').innerHTML = rows
+  const cs = state.contentSearch
+  const status = $('search-status')
+  if (status) {
+    if (cs.running) status.textContent = 'Searching every transcript…'
+    else if (cs.query && cs.results) {
+      const n = Object.keys(cs.results).length
+      status.textContent = `${n} session${n === 1 ? '' : 's'} contain "${cs.query}"${cs.took ? ` · ${cs.took} ms` : ''}`
+    } else status.textContent = ''
+  }
   $('empty').hidden = sessions.length > 0
   $('select-all').checked = sessions.length > 0 && sessions.every((s) => state.selected.has(s.key))
   renderActionBar()
@@ -171,7 +198,6 @@ function renderActionBar() {
   $('actionbar').querySelector('[data-action="push"]').disabled = !has((s) => s.locationId !== 'shared')
   $('actionbar').querySelector('[data-action="pull"]').disabled = !has((s) => s.shared)
   $('actionbar').querySelector('[data-action="rename"]').disabled = chosen.filter((s) => s.shared).length !== 1
-  $('actionbar').querySelector('[data-action="delete-local"]').disabled = !has((s) => s.locationId !== 'shared')
   $('actionbar').querySelector('[data-action="delete-shared"]').disabled = !has((s) => s.shared)
 }
 
@@ -296,22 +322,6 @@ async function runAction(action) {
     toast(`Renamed to "${renamed.name}".`)
   }
 
-  if (action === 'delete-local') {
-    const targets = chosen.filter((s) => s.locationId !== 'shared')
-    const unsynced = targets.filter((s) => s.status === 'local-only' || s.status === 'local-newer')
-    const warning = unsynced.length ? ` ${unsynced.length} of them are not fully backed up to OneDrive and will be lost.` : ''
-    const confirmed = await showModal({
-      title: 'Delete local copies',
-      body: `Permanently delete ${targets.length} transcript file(s) from this machine.${warning} The OneDrive copies stay.`,
-      confirmLabel: 'Delete',
-      danger: true,
-    })
-    if (!confirmed) return
-    const { results } = await api('/api/delete-local', { sessions: targets })
-    const { message, isError } = summarise(results)
-    toast(message, isError)
-  }
-
   if (action === 'delete-shared') {
     const targets = chosen.filter((s) => s.shared)
     const confirmed = await showModal({
@@ -380,7 +390,11 @@ $('rows').addEventListener('click', (event) => {
     return
   }
 
-  const row = event.target.closest('tr[data-key]')
+  // Only the checkbox (or its cell) changes the selection — clicking the title,
+  // path or any other cell must leave it alone.
+  const cell = event.target.closest('td.col-check')
+  if (!cell) return
+  const row = cell.closest('tr[data-key]')
   if (!row) return
   const key = row.dataset.key
   if (state.selected.has(key)) state.selected.delete(key)
@@ -406,9 +420,39 @@ $('actionbar').addEventListener('click', (event) => {
   if (action) runAction(action).catch((err) => toast(err.message, true))
 })
 
-$('search').addEventListener('input', (e) => {
-  state.filters.search = e.target.value
+let searchTimer = null
+let searchToken = 0
+
+async function runContentSearch(needle) {
+  const token = ++searchToken
+  state.contentSearch.running = true
   renderRows()
+  try {
+    const found = await api('/api/search', { q: needle })
+    if (token !== searchToken) return // a newer query already went out
+    state.contentSearch = { query: needle, results: found.results, running: false, took: found.took }
+  } catch {
+    if (token !== searchToken) return
+    state.contentSearch = { query: needle, results: {}, running: false }
+  }
+  renderRows()
+}
+
+$('search').addEventListener('input', (e) => {
+  const value = e.target.value
+  state.filters.search = value
+  const needle = value.trim().toLowerCase()
+
+  clearTimeout(searchTimer)
+  if (needle.length < 2) {
+    searchToken++
+    state.contentSearch = { query: '', results: null, running: false }
+    renderRows()
+    return
+  }
+  renderRows()
+  // Scanning every transcript costs about a second, so wait for a pause in typing.
+  searchTimer = setTimeout(() => runContentSearch(needle), 350)
 })
 for (const [id, key] of [['filter-agent', 'agent'], ['filter-location', 'location'], ['filter-status', 'status']]) {
   $(id).addEventListener('change', (e) => {

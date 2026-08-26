@@ -50,8 +50,6 @@ messages with a marker for the gap between them.
   shared folder and writes a `manifest.json`. Already-saved conversations update in place.
 - **Restore here** — copies a shared conversation into a local root, back at its original
   project/date path. Existing files are skipped unless you tick overwrite.
-- **Delete local** — removes the transcript from this machine only. The confirmation warns
-  when a selected session is not fully backed up.
 - **Delete from OneDrive** — removes the saved conversation from the shared folder, which
   removes it from every machine once OneDrive syncs.
 

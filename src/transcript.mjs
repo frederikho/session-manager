@@ -121,3 +121,59 @@ export async function readTranscript(file, agent) {
 
   return { messages: [...head, ...tail], total, dropped, bytes: stat.size }
 }
+
+/**
+ * What a turn actually said. Tool calls and their output are the transcript's
+ * plumbing, not something either side wrote, so they never match a search.
+ */
+function spokenText(message) {
+  if (!message) return ''
+  if (message.role !== 'user' && message.role !== 'assistant') return ''
+  return (message.parts || [])
+    .filter((part) => part.kind === 'text')
+    .map((part) => part.text)
+    .filter(Boolean)
+    .join('\n')
+}
+
+function snippetAround(text, needle, pad = 90) {
+  const at = text.toLowerCase().indexOf(needle)
+  if (at === -1) return clip(text, pad * 2)
+  const start = Math.max(0, at - pad)
+  const end = Math.min(text.length, at + needle.length + pad)
+  return `${start > 0 ? '…' : ''}${text.slice(start, end).replace(/\s+/g, ' ').trim()}${end < text.length ? '…' : ''}`
+}
+
+/**
+ * Full-text scan of one transcript. Streams line by line and only pays for
+ * JSON.parse on lines that already contain the needle, so a miss costs little
+ * more than a substring scan of the file.
+ */
+export async function searchTranscript(file, agent, needle, { maxSnippets = 3 } = {}) {
+  const stream = fs.createReadStream(file, { encoding: 'utf8' })
+  const lines = readline.createInterface({ input: stream, crlfDelay: Infinity })
+
+  let hits = 0
+  const snippets = []
+
+  for await (const line of lines) {
+    if (!line) continue
+    if (!line.toLowerCase().includes(needle)) continue
+    let rec
+    try {
+      rec = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const message = agent === 'claude' ? claudeMessage(rec) : codexMessage(rec)
+    if (!message) continue
+    const text = spokenText(message)
+    if (!text.toLowerCase().includes(needle)) continue
+    hits += 1
+    if (snippets.length < maxSnippets) {
+      snippets.push({ role: message.role, at: message.at || null, text: snippetAround(text, needle) })
+    }
+  }
+
+  return { hits, snippets }
+}

@@ -20,7 +20,7 @@
 <section class="stats" id="stats"></section>
 
 <section class="controls">
-  <input id="search" type="search" placeholder="Search title, folder or id…" autocomplete="off">
+  <input id="search" type="search" placeholder="Search titles and every message…" autocomplete="off">
   <select id="filter-agent">
     <option value="">All agents</option>
     <option value="claude">Claude</option>
@@ -43,7 +43,6 @@
   <button class="btn primary" data-action="push">Sync to OneDrive</button>
   <button class="btn" data-action="pull">Restore here…</button>
   <button class="btn" data-action="rename">Rename…</button>
-  <button class="btn danger" data-action="delete-local">Delete local</button>
   <button class="btn danger" data-action="delete-shared">Delete from OneDrive</button>
   <button class="btn ghost" id="clear-selection">Clear</button>
 </section>
@@ -57,12 +56,14 @@
         <th>Session</th>
         <th>Where</th>
         <th>State</th>
+        <th class="num">Messages</th>
         <th class="num">Size</th>
         <th>Updated</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
+  <p id="search-status" class="search-status"></p>
   <p id="empty" class="empty" hidden>No sessions match these filters.</p>
 </main>
 

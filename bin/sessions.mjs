@@ -40,6 +40,7 @@ if (args.includes('--list') || args.includes('--json')) {
     const counts = {}
     for (const s of data.sessions) counts[s.status] = (counts[s.status] || 0) + 1
     console.log(`\n${data.sessions.length} sessions: ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ')}`)
+    if (data.emptySkipped) console.log(`${data.emptySkipped} empty session${data.emptySkipped === 1 ? '' : 's'} hidden (opened, never used)`)
   }
   process.exit(0)
 }
