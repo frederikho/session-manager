@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { machineColors } from './machineColors.mjs'
 import { countMessages, parseClaudeSession, parseCodexSession } from './parse.mjs'
 import { discoverLocations, discoverShared } from './paths.mjs'
 
@@ -327,6 +328,8 @@ export function scanAll() {
 
   sessions.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
 
+  const hosts = [...new Set(sessions.map((s) => s.host).filter(Boolean))].sort()
+
   return {
     scannedAt: new Date().toISOString(),
     locations,
@@ -334,5 +337,6 @@ export function scanAll() {
     sessions,
     sharedEntries,
     emptySkipped,
+    machineColors: machineColors(hosts),
   }
 }

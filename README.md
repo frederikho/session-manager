@@ -7,7 +7,7 @@ OneDrive folder — showing which ones are backed up and letting you sync, resto
 sessions
 ```
 
-That starts a local server on `http://127.0.0.1:4321` and opens it in your browser.
+That starts a local server on `http://127.0.0.1:62841` and opens it in your browser.
 
 ## What it scans
 

@@ -65,19 +65,27 @@ function mirrorLocations() {
 
   let hosts = []
   try {
-    hosts = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory())
+    // statSync, not the dirent type: a mirror is often a symlink to a shared
+    // partition, and dirent.isDirectory() is false for those.
+    hosts = fs.readdirSync(root).filter((name) => {
+      try {
+        return fs.statSync(path.join(root, name)).isDirectory()
+      } catch {
+        return false
+      }
+    })
   } catch {
     return locations
   }
 
   for (const host of hosts) {
     for (const agent of ['claude', 'codex']) {
-      const dir = path.join(root, host.name, agent)
+      const dir = path.join(root, host, agent)
       if (!exists(dir)) continue
       locations.push({
-        id: `mirror-${host.name}-${agent}`,
-        label: `${host.name} · ${agent === 'claude' ? 'Claude' : 'Codex'}`,
-        host: host.name,
+        id: `mirror-${host}-${agent}`,
+        label: `${host} · ${agent === 'claude' ? 'Claude' : 'Codex'}`,
+        host,
         agent,
         root: dir,
         readOnly: true,

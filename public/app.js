@@ -7,6 +7,7 @@ const state = {
   hideSubagents: true,
   expanded: null,
   transcripts: new Map(),
+  lastRefresh: null,
 }
 
 function loadPref(key, fallback) {
@@ -270,6 +271,12 @@ function renderTranscript(session) {
   </div>`
 }
 
+function renderMachineBadge(s) {
+  const color = state.data.machineColors?.[s.host]
+  const style = color ? ` style="background:${color.bg};color:${color.fg}"` : ''
+  return `<span class="machine-badge"${style}>${escapeHtml(s.locationLabel)}</span>`
+}
+
 function renderRows() {
   const sessions = visibleSessions()
   const rows = sessions
@@ -294,7 +301,7 @@ function renderRows() {
           </div>
           ${hits}
         </td>
-        <td>${escapeHtml(s.locationLabel)}</td>
+        <td>${renderMachineBadge(s)}</td>
         <td><span class="state ${s.status}">${STATE_LABEL[s.status]}</span></td>
         <td class="num">${formatMessages(s.messages)}</td>
         <td class="num">${formatSize(s.size)}</td>
@@ -348,10 +355,23 @@ function renderLocationFilter() {
   select.value = state.filters.location
 }
 
+function renderLastRefresh() {
+  const el = $('last-refresh')
+  if (!el) return
+  if (!state.lastRefresh) {
+    el.textContent = ''
+    return
+  }
+  const secs = Math.round((Date.now() - state.lastRefresh) / 1000)
+  const text = secs < 5 ? 'refreshed just now' : secs < 60 ? `refreshed ${secs}s ago` : `refreshed ${Math.round(secs / 60)}m ago`
+  el.textContent = text
+}
+
 async function load() {
   $('subtitle').textContent = 'Scanning…'
   try {
     state.data = await api('/api/scan')
+    state.lastRefresh = Date.now()
     const shared = state.data.shared
     $('subtitle').textContent = `${state.data.locations.length} locations · shared: ${shared.claude ? 'claude-sessions' : 'no claude folder'}, ${
       shared.codex ? 'codex/sessions' : 'no codex folder'
@@ -363,6 +383,7 @@ async function load() {
     renderStats()
     renderLocationFilter()
     renderRows()
+    renderLastRefresh()
   } catch (err) {
     $('subtitle').textContent = 'Scan failed'
     toast(err.message, true)
@@ -704,3 +725,4 @@ $('refresh').addEventListener('click', load)
 
 $('detailed-view').checked = state.detailedView
 load()
+setInterval(renderLastRefresh, 5000)

@@ -21,7 +21,7 @@ if (args.includes('--help') || args.includes('-h')) {
   console.log(`sessions — browse, sync and delete Claude Code + Codex sessions
 
   sessions                 start the GUI and open it in the browser
-  sessions --port 4321     use a specific port
+  sessions --port 62841    use a specific port
   sessions --no-open       start the server without opening a browser
   sessions --list          print a summary to the terminal instead of the GUI
   sessions --json          print the full scan as JSON
@@ -45,7 +45,12 @@ if (args.includes('--list') || args.includes('--json')) {
   process.exit(0)
 }
 
-const port = Number(flag('port', 4321))
+// Above the kernel's ephemeral range (32768-60999), so an outgoing
+// connection can never have taken it first, and clear of the ports dev
+// tools reach for by habit.
+const DEFAULT_PORT = 62841
+
+const port = Number(flag('port', DEFAULT_PORT))
 const server = createServer()
 
 server.listen(port, '127.0.0.1', () => {
