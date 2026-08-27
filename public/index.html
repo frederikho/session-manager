@@ -38,6 +38,7 @@
   </select>
   <label class="check"><input type="checkbox" id="hide-subagents" checked> Hide subagent threads</label>
   <label class="check"><input type="checkbox" id="detailed-view"> Detailed view (reasoning, tools, output)</label>
+  <label class="check"><input type="checkbox" id="show-hits" checked> Show full-text matches</label>
 </section>
 
 <section class="actionbar" id="actionbar" hidden>
@@ -50,6 +51,7 @@
 </section>
 
 <main>
+  <p id="search-status" class="search-status"></p>
   <table id="table">
     <thead>
       <tr>
@@ -65,7 +67,6 @@
     </thead>
     <tbody id="rows"></tbody>
   </table>
-  <p id="search-status" class="search-status"></p>
   <p id="empty" class="empty" hidden>No sessions match these filters.</p>
 </main>
 

@@ -156,7 +156,7 @@ function snippetAround(text, needle, pad = 90) {
  * JSON.parse on lines that already contain the needle, so a miss costs little
  * more than a substring scan of the file.
  */
-export async function searchTranscript(file, agent, needle, { maxSnippets = 3 } = {}) {
+export async function searchTranscript(file, agent, needle, { maxSnippets = 200 } = {}) {
   const stream = fs.createReadStream(file, { encoding: 'utf8' })
   const lines = readline.createInterface({ input: stream, crlfDelay: Infinity })
 

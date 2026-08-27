@@ -4,6 +4,8 @@ const state = {
   filters: { search: '', agent: '', location: '', status: '' },
   contentSearch: { query: '', results: null, running: false },
   detailedView: loadPref('detailedView', false),
+  showHits: loadPref('showHits', true),
+  expandedHits: new Set(),
   hideSubagents: true,
   expanded: null,
   transcripts: new Map(),
@@ -93,7 +95,9 @@ function visibleSessions() {
     if (!needle) return true
     const meta = [s.title, s.cwd, s.id, s.project, s.locationLabel].filter(Boolean).join(' ').toLowerCase()
     if (meta.includes(needle)) return true
+    if (!state.showHits) return false
     const content = state.contentSearch
+    if (content.running) return false // stale results only — show nothing until the new search settles
     return content.query === needle && Boolean(content.results?.[s.key])
   })
 }
@@ -277,6 +281,27 @@ function renderMachineBadge(s) {
   return `<span class="machine-badge"${style}>${escapeHtml(s.locationLabel)}</span>`
 }
 
+const HITS_PREVIEW = 3
+
+function renderHits(key, found, needle) {
+  const expanded = state.expandedHits.has(key)
+  const shown = expanded ? found.snippets : found.snippets.slice(0, HITS_PREVIEW)
+
+  const snippets = shown
+    .map(
+      (sn) =>
+        `<div class="hit" data-hit-key="${key}" data-hit-idx="${sn.idx}"><span class="hit-role ${sn.role}">${sn.role === 'user' ? 'you' : 'agent'}</span>${highlightNeedle(sn.text, needle)}</div>`
+    )
+    .join('')
+
+  const toggle =
+    found.snippets.length > HITS_PREVIEW
+      ? `<button class="hit-toggle ${expanded ? 'open' : ''}" data-hit-toggle="${key}" title="${expanded ? 'Show fewer' : `Show all ${found.snippets.length}`}">▸</button>`
+      : ''
+
+  return `<div class="hits"><span class="hit-count">${found.hits} match${found.hits === 1 ? '' : 'es'} in the conversation${toggle}</span>${snippets}</div>`
+}
+
 function renderRows() {
   const sessions = visibleSessions()
   const rows = sessions
@@ -284,12 +309,8 @@ function renderRows() {
       const checked = state.selected.has(s.key) ? 'checked' : ''
       const open = state.expanded === s.key
       const sharedNote = s.shared ? `OneDrive: ${s.shared.name}` : ''
-      const found = state.contentSearch.results?.[s.key]
-      const hits = found
-        ? `<div class="hits"><span class="hit-count">${found.hits} match${found.hits === 1 ? '' : 'es'} in the conversation</span>${found.snippets
-            .map((sn) => `<div class="hit" data-hit-key="${s.key}" data-hit-idx="${sn.idx}"><span class="hit-role ${sn.role}">${sn.role === 'user' ? 'you' : 'agent'}</span>${escapeHtml(sn.text)}</div>`)
-            .join('')}</div>`
-        : ''
+      const found = state.showHits ? state.contentSearch.results?.[s.key] : null
+      const hits = found ? renderHits(s.key, found, state.contentSearch.query) : ''
       const row = `<tr class="${checked ? 'selected' : ''}" data-key="${s.key}">
         <td class="col-check"><input type="checkbox" data-key="${s.key}" ${checked}></td>
         <td class="col-expand"><button class="expander ${open ? 'open' : ''}" data-expand="${s.key}" title="Show conversation">▶</button></td>
@@ -326,6 +347,14 @@ function renderRows() {
   $('empty').hidden = sessions.length > 0
   $('select-all').checked = sessions.length > 0 && sessions.every((s) => state.selected.has(s.key))
   renderActionBar()
+}
+
+/** Escapes `text`, then wraps every occurrence of `needle` in a <mark>. */
+function highlightNeedle(text, needle) {
+  const escaped = escapeHtml(text)
+  if (!needle) return escaped
+  const pattern = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return escaped.replace(new RegExp(pattern, 'ig'), (m) => `<mark class="hit-highlight">${m}</mark>`)
 }
 
 function escapeHtml(text) {
@@ -379,6 +408,7 @@ async function load() {
     const live = new Set(state.data.sessions.map((s) => s.key))
     for (const key of [...state.selected]) if (!live.has(key)) state.selected.delete(key)
     for (const key of [...state.transcripts.keys()]) if (!live.has(key)) state.transcripts.delete(key)
+    for (const key of [...state.expandedHits]) if (!live.has(key)) state.expandedHits.delete(key)
     if (state.expanded && !live.has(state.expanded)) state.expanded = null
     renderStats()
     renderLocationFilter()
@@ -621,6 +651,15 @@ async function copyId(id, button) {
 }
 
 $('rows').addEventListener('click', (event) => {
+  const hitToggle = event.target.closest('[data-hit-toggle]')
+  if (hitToggle) {
+    const key = hitToggle.dataset.hitToggle
+    if (state.expandedHits.has(key)) state.expandedHits.delete(key)
+    else state.expandedHits.add(key)
+    renderRows()
+    return
+  }
+
   const hit = event.target.closest('[data-hit-key]')
   if (hit) {
     const key = hit.dataset.hitKey
@@ -721,8 +760,14 @@ $('hide-subagents').addEventListener('change', (e) => {
   state.hideSubagents = e.target.checked
   renderRows()
 })
+$('show-hits').addEventListener('change', (e) => {
+  state.showHits = e.target.checked
+  savePref('showHits', state.showHits)
+  renderRows()
+})
 $('refresh').addEventListener('click', load)
 
 $('detailed-view').checked = state.detailedView
+$('show-hits').checked = state.showHits
 load()
 setInterval(renderLastRefresh, 5000)

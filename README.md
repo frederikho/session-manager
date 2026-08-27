@@ -83,6 +83,56 @@ sessions --port 5000   # use a different port
 sessions --no-open     # don't launch a browser
 ```
 
+## Running it always (Linux, systemd)
+
+A user service starts the server at login and restarts it if it ever dies, so
+`http://127.0.0.1:62841/` is simply always there:
+
+```
+systemctl --user status session-manager     # is it up?
+systemctl --user restart session-manager    # after changing the code
+journalctl --user -u session-manager -n 50  # what did it say?
+systemctl --user disable --now session-manager   # stop doing this
+```
+
+The unit is `~/.config/systemd/user/session-manager.service`. Two things about it
+are deliberate:
+
+- It runs as a **user** service, not a system one, so it starts at login and stops
+  at logout. The server binds `127.0.0.1` only, so it is useless when nobody is
+  logged in anyway.
+- The code lives on the VeraCrypt volume `/mnt/data1`, which is unlocked after
+  login. Instead of ordering after the mount, the unit just retries every 10 s
+  (`Restart=always`, no start limit) until the volume appears.
+
+`ExecStart` names the nvm Node binary by absolute path, because systemd does not
+source your shell profile. After an `nvm install` of a new major version, update
+that path in the unit.
+
+## Running it always (Windows, Scheduled Tasks)
+
+The equivalent for a plain Windows machine (no WSL) is a Scheduled Task that starts
+at logon and restarts on failure:
+
+```
+powershell -ExecutionPolicy Bypass -File bin\install-windows-autostart.ps1
+```
+
+That registers a task named `SessionManager` (`Get-ScheduledTask -TaskName
+SessionManager` to inspect it, `Start-ScheduledTask` / `Stop-ScheduledTask` by the
+same name to control it) and starts it immediately. On a machine where Node is only
+installed inside WSL (not natively on Windows), the task runs the server through
+`wsl.exe -d <distro> -- node .../bin/sessions.mjs --no-open`, hidden behind
+`wscript.exe` so no console window appears — the server still binds `127.0.0.1` and
+is reachable from Windows browsers exactly as if it ran natively. It retries every
+minute, indefinitely, if the process ever exits. Re-run the install script after
+moving the repo, switching WSL distro, or installing a new Node version, since it
+records those in the generated launcher at install time. To stop doing this:
+
+```
+powershell -ExecutionPolicy Bypass -File bin\uninstall-windows-autostart.ps1
+```
+
 ## Install on a new machine
 
 The tool lives in OneDrive, so it is already there. Register the command once per machine:

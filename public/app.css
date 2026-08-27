@@ -341,6 +341,25 @@ td.num { text-align: right; color: var(--muted); font-variant-numeric: tabular-n
 .hit-role.user { color: #7aa2f7; }
 .hit-role.assistant { color: #9ece6a; }
 
+/* The needle inside a search snippet — stays lit, unlike the transient jump mark. */
+mark.hit-highlight { background: rgba(255, 205, 40, .55); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+.hit-toggle {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  vertical-align: middle;
+  color: var(--accent, #6a9);
+  cursor: pointer;
+  transition: transform .15s;
+}
+.hit-toggle:hover { color: inherit; }
+.hit-toggle.open { transform: rotate(90deg); }
+
 @keyframes flash-highlight { 0% { background: rgba(255, 205, 40, .22); } 100% { background: transparent; } }
 .msg-highlight { animation: flash-highlight 4s ease-out; border-radius: 6px; }
 
